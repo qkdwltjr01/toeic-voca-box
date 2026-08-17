@@ -1,0 +1,12 @@
+# 원본 PDF (15MB) — 단어 데이터는 words.json 에 이미 추출되어 있다.
+# 다시 파싱하려면 이 파일을 이 폴더에 두고 `python build.py` 실행.
+토익-단어장-PDF-for-PC-A4size-All.pdf
+*.pdf
+
+# 앱에서 내보낸 개인 학습 기록
+단어상자-백업-*.json
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store
