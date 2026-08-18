@@ -785,6 +785,22 @@ button { font: inherit; color: inherit; }
 }
 .note b { color: var(--text); }
 
+.mean-row { display: grid; grid-template-columns: 92px 1fr 34px; gap: 6px; align-items: center; }
+.mean-row + .mean-row { margin-top: 6px; }
+.mean-row select, .mean-row input { width: 100%; }
+.mean-x {
+  border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-md);
+  height: 38px; color: var(--text-3); font-size: 17px; line-height: 1; cursor: pointer;
+}
+.mean-x:hover { color: var(--bad); border-color: var(--bad-line); }
+.mean-x[disabled] { opacity: .35; cursor: default; }
+.mean-add {
+  margin-top: 8px; width: 100%; border: 1px dashed var(--line); background: transparent;
+  border-radius: var(--r-md); padding: 10px; font-size: 13px; font-weight: 600;
+  color: var(--text-2); cursor: pointer;
+}
+.mean-add:hover { border-color: var(--accent); color: var(--accent); }
+
 .sync-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--text-2); }
 .sync-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--line); flex: none; }
 .sync-dot.ok { background: var(--ok); }
@@ -950,6 +966,21 @@ const POS_ALIAS = {
   "명": "명사", "동": "동사", "형": "형용사", "부": "부사", "전": "전치사",
   "명사": "명사", "동사": "동사", "형용사": "형용사", "부사": "부사", "전치사": "전치사",
 };
+/* 뜻 목록을 다듬는다: 빈 줄 제거, 같은 품사+뜻은 한 번만. */
+function normMeans(list) {
+  const out = [], seen = new Set();
+  (list || []).forEach(m => {
+    const ko = String((m && m.ko) || "").trim();
+    if (!ko) return;
+    const pos = String((m && m.pos) || "").trim();
+    const key = pos + "|" + ko;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ pos, ko });
+  });
+  return out;
+}
+
 function parseMeans(text, defPos) {
   const out = [], seen = new Set();
   String(text || "").split(/\r?\n/).forEach(line => {
@@ -968,10 +999,11 @@ function parseMeans(text, defPos) {
 }
 
 /* 내 단어 저장. 이미 있는 단어면 덮어쓴다(수정과 같은 경로). */
-function saveCustom({ word, pos, ko, mn, src, ex }) {
+function saveCustom({ word, pos, ko, mn, src, ex, means: meanList }) {
   const id = (word || "").trim().toLowerCase();
-  if (!id || !(ko || "").trim()) return null;
-  const means = parseMeans(ko, pos);
+  if (!id) return null;
+  // 폼은 뜻 배열을 그대로 넘기고, 붙여넣기 모드는 문자열 한 줄을 넘긴다
+  const means = meanList ? normMeans(meanList) : parseMeans(ko, pos);
   if (!means.length) return null;
   const source = (src || "내 단어").trim() || "내 단어";
   S.custom[id] = {
@@ -1952,10 +1984,10 @@ function viewAdd() {
   const c = editing ? S.custom[editing] : null;
   const ms = (c && c.means) || [];
   // 여러 뜻은 "품사) 뜻" 한 줄씩으로 되돌려 보여준다
-  const meanText = ms.map(m => (m.pos ? m.pos + ") " : "") + m.ko).join("\n");
-  // 품사 선택은 뜻이 하나뿐일 때만 미리 채운다 (여러 개면 줄마다 표시가 붙는다)
-  const m = ms.length === 1 ? ms[0] : {};
+  if (!addDraft) initAddDraft(editing);        // 새로고침 등으로 draft가 없으면 다시 만든다
+  const rows = addDraft.means;
   const srcVal = c ? c.src : S.settings.lastSrc;
+  const POS_OPTS = ["", "명사", "동사", "형용사", "부사", "전치사"];
   return `
   <div class="sheet-back" data-act="closeSheet">
     <div class="sheet" data-stop="1">
@@ -1970,18 +2002,18 @@ function viewAdd() {
       </div>
 
       <div class="field">
-        <label class="field-l" for="adKo">뜻</label>
-        <textarea id="adKo" rows="${Math.max(2, ms.length + 1)}" placeholder="버리다, 포기하다">${esc(meanText)}</textarea>
-        <span class="field-d">품사가 여러 개면 <b>한 줄에 하나씩</b> 적으세요. 줄 앞에 품사를 붙일 수 있습니다.
-          <br><span class="sync-code">명) 주소<br>동) 다루다, 연설하다</span></span>
-      </div>
-
-      <div class="field">
-        <label class="field-l" for="adPos">품사 <span style="font-weight:400;color:var(--text-3)">(품사 표시가 없는 줄에 적용)</span></label>
-        <select id="adPos">
-          ${["", "명사", "동사", "형용사", "부사", "전치사"].map(p =>
-            `<option value="${p}" ${(m.pos || "") === p ? "selected" : ""}>${p || "— 없음 —"}</option>`).join("")}
-        </select>
+        <span class="field-l">뜻 <span style="font-weight:400;color:var(--text-3)">품사마다 한 줄</span></span>
+        ${rows.map((r, i) => `
+        <div class="mean-row">
+          <select id="adPos${i}" aria-label="${i + 1}번째 뜻의 품사">
+            ${POS_OPTS.map(p => `<option value="${p}" ${r.pos === p ? "selected" : ""}>${p || "품사 없음"}</option>`).join("")}
+          </select>
+          <input type="text" id="adKo${i}" placeholder="${i === 0 ? "주소" : "다루다, 연설하다"}" value="${esc(r.ko)}">
+          <button class="mean-x" data-act="meanDel" data-i="${i}" aria-label="이 뜻 지우기" ${rows.length === 1 ? "disabled" : ""}>×</button>
+        </div>`).join("")}
+        <button class="mean-add" data-act="meanAdd">+ 뜻 추가</button>
+        <span class="field-d">품사가 다르면 줄을 나눠 주세요. 맨 위 뜻이 4지선다 정답 보기로 나옵니다.
+          품사를 모르면 <b>품사 없음</b> 그대로 두셔도 됩니다.</span>
       </div>
 
       <div class="field">
@@ -2518,7 +2550,7 @@ app.addEventListener("click", (ev) => {
   if (modeEl) { S.settings.mode = modeEl.dataset.mode; saveState(); render(); return; }
 
   const editEl = t.closest("[data-edit]");
-  if (editEl) { ev.stopPropagation(); editing = editEl.dataset.edit; sheet = "add"; render(); return; }
+  if (editEl) { ev.stopPropagation(); openAddForm(editEl.dataset.edit); render(); return; }
 
   const delEl = t.closest("[data-del]");
   if (delEl) {
@@ -2574,7 +2606,7 @@ app.addEventListener("click", (ev) => {
 
   switch (a) {
     case "settings": sheet = "settings"; render(); break;
-    case "closeSheet": sheet = null; render(); break;
+    case "closeSheet": sheet = null; addDraft = null; render(); break;
     case "start": startSession(); break;
     case "home": go("dash"); break;
     case "wrong": go("wrong"); break;
@@ -2589,7 +2621,20 @@ app.addEventListener("click", (ev) => {
     case "hint": session.hint = true; render(); break;
 
     case "my": go("my"); break;
-    case "openAdd": editing = null; sheet = "add"; render(); break;
+    case "openAdd": openAddForm(null); render(); break;
+    case "meanAdd":
+      syncMeanDraft();
+      addDraft.means.push({ pos: "", ko: "" });
+      focusMean = addDraft.means.length - 1;
+      render();
+      break;
+    case "meanDel": {
+      syncMeanDraft();
+      const i = +btn.dataset.i;
+      if (addDraft.means.length > 1) addDraft.means.splice(i, 1);
+      render();
+      break;
+    }
     case "openBulk": bulkPreview = null; sheet = "bulk"; render(); break;
     case "saveAdd": case "saveAddMore": doSaveAdd(a === "saveAddMore"); break;
     case "bulkCheck": doBulkCheck(); break;
@@ -2642,24 +2687,52 @@ app.addEventListener("input", (ev) => {
 
 /* ---- 내 단어 폼 처리 ---- */
 let lastSaved = null, importMsg = "";
+
+/* 뜻 줄은 개수가 늘었다 줄었다 하므로 화면을 다시 그려도 살아남게 따로 들고 있는다.
+   나머지 칸(영단어·연상·출처)은 저장할 때 DOM에서 바로 읽는다. */
+let addDraft = null;
+let focusMean = -1;              // 방금 추가한 줄에 커서를 놓기 위한 표시
+
+function initAddDraft(id) {
+  const c = id ? S.custom[id] : null;
+  const ms = (c && c.means && c.means.length) ? c.means : [{ pos: "", ko: "" }];
+  addDraft = { means: ms.map(m => ({ pos: m.pos || "", ko: m.ko || "" })) };
+  focusMean = -1;
+}
+function openAddForm(id) { editing = id || null; initAddDraft(editing); sheet = "add"; }
+
+/* 화면에 있는 값을 draft에 다시 담는다. 줄을 더하거나 지우기 직전에 부른다. */
+function syncMeanDraft() {
+  if (!addDraft) return;
+  addDraft.means.forEach((m, i) => {
+    const ko = document.getElementById("adKo" + i);
+    const pos = document.getElementById("adPos" + i);
+    if (ko) m.ko = ko.value;
+    if (pos) m.pos = pos.value;
+  });
+}
 const val = id => { const e = document.getElementById(id); return e ? String(e.value || "") : ""; };
 const WORD_RE = /^[A-Za-z][A-Za-z '\-]*$/;
 
 function doSaveAdd(more) {
+  syncMeanDraft();
   const word = editing ? S.custom[editing].word : val("adWord");
-  const ko = val("adKo"), pos = val("adPos"), mn = val("adMn"), src = val("adSrc");
+  const mn = val("adMn"), src = val("adSrc");
   const box = document.getElementById("adMsg");
   const warn = m => { if (box) box.innerHTML = `<div class="warn">${m}</div>`; };
 
-  if (!word.trim() || !ko.trim()) return warn("영단어와 뜻은 꼭 입력해 주세요.");
-  if (!WORD_RE.test(word.trim())) return warn("영단어 칸에는 영문만 넣어 주세요.");
+  const means = normMeans(addDraft ? addDraft.means : []);
 
-  saveCustom({ word, pos, ko, mn, src });
+  if (!word.trim()) return warn("영단어를 입력해 주세요.");
+  if (!WORD_RE.test(word.trim())) return warn("영단어 칸에는 영문만 넣어 주세요.");
+  if (!means.length) return warn("뜻을 하나 이상 입력해 주세요.");
+
+  saveCustom({ word, means, mn, src });
   lastSaved = word.trim();
   editing = null;
 
-  if (more) { sheet = "add"; render(); return; }   // 폼을 비우고 계속 입력
-  sheet = null;
+  if (more) { openAddForm(null); render(); return; }   // 폼을 비우고 계속 입력
+  sheet = null; addDraft = null;
   if (view === "my") render(); else go("my");
 }
 
@@ -2736,6 +2809,11 @@ document.addEventListener("keydown", (ev) => {
 
 /* swipe on the card: left = 모름, right = 앎 (flash mode), any = next when revealed */
 function afterRender() {
+  if (focusMean >= 0) {
+    const el = document.getElementById("adKo" + focusMean);
+    focusMean = -1;
+    if (el) el.focus({ preventScroll: true });
+  }
   if (!session) return;
   const inp = document.getElementById("spellIn");
   if (inp && !session.revealed) { inp.focus({ preventScroll: true }); }
