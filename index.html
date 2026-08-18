@@ -1101,7 +1101,6 @@ function defaultState() {
   return {
     settings: {
       examDate: exam,
-      newPerDay: 40,
       chunk: 25,               // 한 번 앉았을 때 풀 문항 수 (하루치를 여러 번에 나눠 푼다)
       ranks: CORE_RANKS.length ? CORE_RANKS : ALL_RANKS,
       sources: [],             // 켜져 있는 내 단어장 이름들
@@ -1141,7 +1140,7 @@ function activeWords() {
 }
 function todayLog() {
   const k = dayKey();
-  if (!S.log[k]) S.log[k] = { new: 0, rev: 0, right: 0, wrong: 0, mine: 0 };
+  if (!S.log[k]) S.log[k] = { new: 0, rev: 0, right: 0, wrong: 0, mine: 0, quota: 0 };
   if (S.log[k].mine == null) S.log[k].mine = 0;   // 옛 기록 보정
   return S.log[k];
 }
@@ -1155,9 +1154,31 @@ function dueCards() {
     return (ca.due < cb.due ? -1 : ca.due > cb.due ? 1 : ca.box - cb.box);
   });
 }
+/* 기본 단어장에서 아직 한 번도 안 나온 단어 수. 내가 등록한 단어는 빼고 센다. */
+function untouchedBase() {
+  return activeWords().filter(w => !S.cards[w.id] && !w.marks.length).length;
+}
+
+/* 그날 낼 기본 단어 수를 남은 기간에서 역산한다.
+
+   사용자가 직접 정하던 값이었는데, 정확히 맞추기 어렵고(남은 단어 ÷ 남은 날짜를
+   손으로 계산해야 한다) 한 번 정하면 시험이 가까워져도 그대로라 뒤로 갈수록 모자란다.
+   그래서 없애고 매일 다시 계산한다. 하루 밀리면 다음날 몫이 알아서 늘어난다.
+
+   하루 안에서는 값을 고정한다. 풀수록 남은 단어가 줄어 목표가 같이 줄어들면
+   오늘치가 영영 안 끝나는 것처럼 보이기 때문이다. */
+function dailyQuota() {
+  const L = todayLog();
+  if (!L.quota) {
+    const left = Math.max(1, daysBetween(dayKey(), S.settings.examDate));
+    L.quota = Math.max(1, Math.ceil(untouchedBase() / left));
+  }
+  return L.quota;
+}
+
 /* 새 단어를 '내가 등록한 것'과 '기본 단어장'으로 나눠서 낸다.
 
-   하루 한도(newPerDay)는 기본 단어장에만 건다. 내가 오늘 200개를 등록했으면
+   하루 몫(dailyQuota)은 기본 단어장에만 건다. 내가 오늘 200개를 등록했으면
    그 200개는 오늘 다 나온다 — 등록은 "이건 오늘 외우겠다"는 뜻이지, 기본 단어장
    진도를 200개 늦추겠다는 뜻이 아니기 때문이다. 한 한도를 같이 쓰면 등록할수록
    기본 진도가 멈춰서 시험 전에 한 바퀴를 못 돈다. */
@@ -1165,7 +1186,7 @@ function newSplit() {
   const L = todayLog();
   const untouched = activeWords().filter(w => !S.cards[w.id]);
   const mine = untouched.filter(w => w.marks.length > 0).sort((a, b) => a.idx - b.idx);
-  const remaining = Math.max(0, S.settings.newPerDay - L.new);
+  const remaining = Math.max(0, dailyQuota() - L.new);
   const base = untouched.filter(w => !w.marks.length).sort((a, b) => a.idx - b.idx).slice(0, remaining);
   return { mine, base };
 }
@@ -1359,7 +1380,7 @@ function viewDash() {
           <span class="qs-n num">${fresh}</span>
           <span class="qs-l">${split.mine.length
             ? `새 단어 ${split.base.length} + 내 단어 ${split.mine.length}`
-            : `새 단어 (오늘 ${L.new}/${S.settings.newPerDay})`}</span>
+            : `새 단어 (오늘 ${L.new}/${dailyQuota()})`}</span>
         </div>
       </div>
       <div class="rail-wrap">
@@ -1420,8 +1441,6 @@ function viewDash() {
    하루 60개가 넘어가면 새 단어를 훑기만 하고 복습이 밀려 결국 아무것도 안 남는다. */
 function paceWarning(pace, dLeft) {
   if (pace <= 60 || dLeft <= 0) return "";
-  // 하루 목표를 이미 그 페이스에 맞춰 놨다면 각오하고 정한 것 — 잔소리하지 않는다
-  if (S.settings.newPerDay >= pace) return "";
   const paceFor = n => {
     const rs = new Set(RANK_META.filter(r => r.i * 100 < n).map(r => r.i));
     const un = WORDS.filter(w => w.rank >= 0 && rs.has(w.rank) && !S.cards[w.id]).length;
@@ -2013,18 +2032,18 @@ function viewSettings() {
       </div>
 
       <div class="field">
-        <label class="field-l" for="setNew">하루 새 단어 수</label>
-        <input type="number" id="setNew" min="5" max="300" step="5" value="${S.settings.newPerDay}">
-        <span class="field-d">이 한도는 <b>기본 단어장에만</b> 걸립니다. 내가 등록한 단어는 별도로,
-          등록한 만큼 그날 다 나옵니다. 복습도 이 숫자와 별개로 밀린 만큼 나옵니다.
-          남은 ${st.untouched}개 기준 하루 ${Math.max(1, Math.ceil(st.untouched / Math.max(1, daysBetween(dayKey(), S.settings.examDate))))}개면 시험 전에 한 바퀴 돕니다.</span>
+        <span class="field-l">오늘 새 단어 ${dailyQuota()}개 · 자동</span>
+        <span class="field-d">남은 기본 단어 ${untouchedBase()}개를 시험까지 ${Math.max(0, daysBetween(dayKey(), S.settings.examDate))}일에 나눈 값입니다.
+          정하실 필요 없습니다 — 하루 밀리면 다음날 몫이 알아서 늘어납니다.
+          <b>내가 등록한 단어는 이 숫자와 무관하게</b> 등록한 만큼 그날 다 나오고, 복습도 별개입니다.
+          이 숫자가 버거우면 위의 학습 범위를 줄이세요.</span>
       </div>
 
       <div class="field">
         <label class="field-l" for="setChunk">한 번에 풀 개수</label>
         <input type="number" id="setChunk" min="5" max="200" step="5" value="${S.settings.chunk}">
-        <span class="field-d">하루치를 이 크기로 잘라서 냅니다. 하루 ${S.settings.newPerDay}개면
-          ${chunkSize()}개씩 앉을 때마다 조금씩 — 한 번에 다 하려면 크게 올리세요.</span>
+        <span class="field-d">하루치를 이 크기로 잘라서 냅니다. 오늘 할 ${dueCards().length + newCards().length}개를
+          ${chunkSize()}개씩 나눠서 — 한 번에 다 하려면 크게 올리세요.</span>
       </div>
 
       <div class="field">
@@ -2196,6 +2215,7 @@ function mergeStates(A, B) {
       right: Math.max(+x.right || 0, +y.right || 0),
       wrong: Math.max(+x.wrong || 0, +y.wrong || 0),
       mine:  Math.max(+x.mine  || 0, +y.mine  || 0),
+      quota: Math.max(+x.quota || 0, +y.quota || 0),
     };
   });
 
@@ -2468,6 +2488,7 @@ app.addEventListener("click", (ev) => {
     const p = presetEl.dataset.preset;
     const n = p === "all" ? Infinity : +p;
     S.settings.ranks = RANK_META.filter(r => r.i * 100 < n).map(r => r.i);
+    todayLog().quota = 0;      // 범위가 바뀌면 하루 몫도 달라진다
     saveState(); render(); return;
   }
 
@@ -2480,6 +2501,7 @@ app.addEventListener("click", (ev) => {
     const hasMine = (S.settings.sources || []).some(s => customCount(s) > 0);
     if (!set.size && !hasMine) set.add(r);
     S.settings.ranks = [...set].sort((a, b) => a - b);
+    todayLog().quota = 0;      // 범위가 바뀌면 하루 몫도 달라진다
     saveState(); render(); return;
   }
 
@@ -2543,8 +2565,11 @@ app.addEventListener("click", (ev) => {
 
 app.addEventListener("input", (ev) => {
   if (ev.target.id === "spellIn") session.typed = ev.target.value;
-  if (ev.target.id === "setExam" && ev.target.value) { S.settings.examDate = ev.target.value; saveState(); }
-  if (ev.target.id === "setNew") { S.settings.newPerDay = Math.max(5, Math.min(300, +ev.target.value || 30)); saveState(); }
+  if (ev.target.id === "setExam" && ev.target.value) {
+    S.settings.examDate = ev.target.value;
+    todayLog().quota = 0;      // 남은 기간이 바뀌었으니 오늘 몫도 다시 계산한다
+    saveState();
+  }
   if (ev.target.id === "setChunk") { S.settings.chunk = Math.max(5, Math.min(200, +ev.target.value || 25)); saveState(); }
   if (ev.target.id === "setSpeak") { S.settings.autoSpeak = ev.target.value === "1"; saveState(); }
   if (ev.target.id === "syncTok") tokenDraft = ev.target.value;
