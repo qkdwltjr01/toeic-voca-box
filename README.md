@@ -4,7 +4,7 @@
 
 ## 쓰는 법
 
-`voca-box.html` 을 더블클릭. 끝. 인터넷 없이도 돌아가고, 단어 데이터까지 파일 하나에 다 들어있다.
+`index.html` 을 더블클릭. 끝. 인터넷 없이도 돌아가고, 단어 데이터까지 파일 하나에 다 들어있다.
 
 ## 동기화
 
@@ -36,24 +36,36 @@
 
 파일 백업(설정 → 파일 백업)은 그대로 남아 있다. 통째로 옮기거나 보관할 때 쓴다.
 
-## 폰에서 쓰기
+## 폰에서 쓰기 (GitHub Pages)
 
-저장소가 private이라 무료 GitHub Pages는 못 쓴다. **Cloudflare Pages** 가 private 레포를
-그대로 무료 배포해 준다:
+저장소 Settings → Pages → Source를 `Deploy from a branch`, 브랜치 `main` / `(root)` 로 두면
+`https://qkdwltjr01.github.io/<저장소이름>/` 에서 열린다. 앱 파일 이름이 `index.html` 이라
+주소 뒤에 파일명을 붙일 필요가 없다. 빌드 설정은 없다.
 
-1. dash.cloudflare.com → Workers & Pages → Create → Pages → Connect to Git
-2. 이 저장소 선택. 빌드 명령 없음, 출력 디렉터리는 `/` (루트)
-3. 배포되면 `https://<프로젝트명>.pages.dev` 로 폰에서도 열린다
+Pages를 쓰려면 저장소가 public이어야 한다(무료 계정 기준). `index.html` 안에 단어
+데이터가 인라인돼 있으므로 그 2,109단어도 같이 공개된다. 학습 기록은 저장소가 아니라
+비공개 Gist에 있으므로 공개되지 않는다.
 
-주소를 아무나 못 열게 하려면 Cloudflare Access로 잠그면 된다(무료 한도 안).
 호스팅 없이 각 기기에 HTML 파일을 두고 써도 동기화는 똑같이 된다 —
-GitHub API가 `file://` 요청도 받아 준다.
+GitHub API가 `file://` 에서 온 요청(`Origin: null`)도 받아 준다.
+
+## file:// 에서 쓰던 기록 옮기기
+
+`file://` 로 열던 페이지와 `https://...github.io/...` 는 브라우저가 서로 다른 저장소로
+취급한다. 그냥 새 주소를 열면 진도가 빈 것처럼 보인다. **순서를 지켜야 한다**:
+
+1. 지금 쓰던 로컬 `index.html` 을 열고, 설정 → 클라우드 동기화 → 토큰 연결
+   (여기서 기존 진도가 Gist로 올라간다)
+2. 그 다음 Pages 주소를 열고, 같은 토큰으로 연결 (진도가 내려온다)
+
+반대 순서로 하면 빈 상태가 올라가지는 않는다 — 병합은 항목 단위라 기존 기록을 지우지
+않는다 — 하지만 1번을 아예 안 하면 로컬 진도는 그 브라우저 안에 그대로 남아 있을 뿐이다.
 
 ## 파일
 
 | 파일 | 설명 |
 |---|---|
-| `voca-box.html` | 앱 본체. CSS·JS·단어 데이터가 전부 인라인된 단일 파일 |
+| `index.html` | 앱 본체. CSS·JS·단어 데이터가 전부 인라인된 단일 파일 |
 | `words.json` | PDF에서 추출한 2,109단어 |
 | `build.py` | PDF → `words.json` → HTML 주입까지 한 번에 |
 

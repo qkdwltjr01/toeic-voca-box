@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-토익 단어장 PDF -> words.json -> voca-box.html 주입
+토익 단어장 PDF -> words.json -> index.html 주입
 
 실행:  python build.py
 
@@ -28,7 +28,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="repla
 HERE = os.path.dirname(os.path.abspath(__file__))
 PDF = os.path.join(HERE, "토익-단어장-PDF-for-PC-A4size-All.pdf")
 JSON_OUT = os.path.join(HERE, "words.json")
-HTML = os.path.join(HERE, "voca-box.html")
+HTML = os.path.join(HERE, "index.html")
 
 POS_MAP = {
     "명": "명사", "동": "동사", "형": "형용사", "부": "부사",
@@ -217,11 +217,11 @@ def main():
         html, count=1, flags=re.S,
     )
     if not n:
-        sys.exit("voca-box.html에서 WORDS_JSON 마커를 찾지 못했습니다.")
+        sys.exit("index.html에서 WORDS_JSON 마커를 찾지 못했습니다.")
 
     with open(HTML, "w", encoding="utf-8") as f:
         f.write(new)
-    print(f"주입: voca-box.html  ({len(new) / 1024:.0f} KB)")
+    print(f"주입: index.html  ({len(new) / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":
