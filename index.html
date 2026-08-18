@@ -1305,6 +1305,8 @@ const ICON = {
 let view = "dash";
 let session = null;
 let sheet = null;
+let rangeNote = "";        // 학습 범위가 방금 바뀌었을 때 띄우는 안내
+let rangeUndo = null;      // 바뀌기 직전의 범위
 
 function render() {
   const y = window.scrollY;
@@ -1320,7 +1322,7 @@ function render() {
   if (view === "study") window.scrollTo(0, 0); else window.scrollTo(0, Math.min(y, document.body.scrollHeight));
   afterRender();
 }
-function go(v) { view = v; sheet = null; render(); }
+function go(v) { view = v; sheet = null; rangeNote = ""; render(); }
 
 /* ============================================================================
    10. DASHBOARD
@@ -1362,8 +1364,11 @@ function viewDash() {
       <div class="cd-side">
         <span class="cd-stat">외운 단어 <b>${st.learned}</b>/${st.total}</span>
         <span class="cd-stat">권장 페이스 <b>하루 ${pace}개</b></span>
+        <span class="cd-stat">학습 범위 <b>${rangeLabel()}</b></span>
       </div>
     </div>
+    ${rangeNote ? `<div class="note"><b>${esc(rangeNote)}</b>
+      <div class="link-row" style="margin-top:8px"><button class="sbtn" data-act="rangeUndo">되돌리기</button></div></div>` : ""}
     ${paceWarning(pace, dLeft)}
 
     <div class="queue">
@@ -1437,6 +1442,18 @@ function viewDash() {
   </div></div>`;
 }
 
+/* 지금 켜져 있는 순위 구간을 "1–600" 같은 한 줄로. 범위가 조용히 바뀌면
+   미학습 개수가 갑자기 줄어 진도가 날아간 것처럼 보이므로 항상 화면에 띄운다. */
+function rangeLabel() {
+  const rs = [...(S.settings.ranks || [])].sort((a, b) => a - b);
+  const metas = RANK_META.filter(r => rs.includes(r.i));
+  if (!metas.length) return "내 단어만";
+  const lo = metas[0].label.split("–")[0];
+  const hi = metas[metas.length - 1].label.split("–")[1];
+  const contiguous = metas.length === (rs[rs.length - 1] - rs[0] + 1);
+  return contiguous ? `${lo}–${hi}` : `${lo}–${hi} 중 ${metas.length}구간`;
+}
+
 /* 남은 기간에 비해 범위가 너무 넓으면, 줄였을 때의 페이스를 같이 보여준다.
    하루 60개가 넘어가면 새 단어를 훑기만 하고 복습이 밀려 결국 아무것도 안 남는다. */
 function paceWarning(pace, dLeft) {
@@ -1449,11 +1466,13 @@ function paceWarning(pace, dLeft) {
   const opts = [600, 1200].filter(n => paceFor(n) > 0 && paceFor(n) < pace);
   if (!opts.length) return "";
   return `<div class="note">
-    <b>하루 ${pace}개</b>는 복습까지 하면 버티기 어려운 양입니다. 범위를 줄이면
-    같은 기간에 더 확실히 남습니다.
+    <b>하루 ${pace}개</b>는 복습까지 하면 버티기 어려운 양입니다. 학습 범위를 줄이면
+    같은 기간에 더 확실히 남습니다. 지금 범위는 <b>${rangeLabel()}</b>입니다.
     <div class="link-row" style="margin-top:8px">
       ${opts.map(n => `<button class="sbtn" data-preset="${n}">1–${n}로 줄이기 · 하루 ${paceFor(n)}개</button>`).join("")}
     </div>
+    <span class="field-d" style="display:block;margin-top:6px">범위를 줄여도 풀어둔 진도는 그대로 남습니다.
+      설정 → 학습 범위에서 언제든 되돌릴 수 있습니다.</span>
   </div>`;
 }
 
@@ -2487,9 +2506,14 @@ app.addEventListener("click", (ev) => {
   if (presetEl) {
     const p = presetEl.dataset.preset;
     const n = p === "all" ? Infinity : +p;
+    const before = rangeLabel();
+    rangeUndo = [...S.settings.ranks];
     S.settings.ranks = RANK_META.filter(r => r.i * 100 < n).map(r => r.i);
     todayLog().quota = 0;      // 범위가 바뀌면 하루 몫도 달라진다
-    saveState(); render(); return;
+    saveState();
+    // 범위를 좁히면 미학습 개수가 뚝 떨어져서 진도가 날아간 것처럼 보인다. 짚어준다.
+    rangeNote = before === rangeLabel() ? "" : `학습 범위를 ${before} → ${rangeLabel()}로 바꿨습니다. 진도는 그대로입니다.`;
+    render(); return;
   }
 
   const rankEl = t.closest("[data-rank]");
@@ -2533,6 +2557,10 @@ app.addEventListener("click", (ev) => {
     case "saveAdd": case "saveAddMore": doSaveAdd(a === "saveAddMore"); break;
     case "bulkCheck": doBulkCheck(); break;
     case "bulkSave": doBulkSave(); break;
+    case "rangeUndo":
+      if (rangeUndo) { S.settings.ranks = rangeUndo; rangeUndo = null; todayLog().quota = 0; saveState(); }
+      rangeNote = ""; render();
+      break;
     case "export": exportBackup(); break;
     case "syncConnect": connectSync(val("syncTok") || tokenDraft); break;
     case "syncOff":
