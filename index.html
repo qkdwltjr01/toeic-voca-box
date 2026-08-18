@@ -1141,7 +1141,8 @@ function activeWords() {
 }
 function todayLog() {
   const k = dayKey();
-  if (!S.log[k]) S.log[k] = { new: 0, rev: 0, right: 0, wrong: 0 };
+  if (!S.log[k]) S.log[k] = { new: 0, rev: 0, right: 0, wrong: 0, mine: 0 };
+  if (S.log[k].mine == null) S.log[k].mine = 0;   // 옛 기록 보정
   return S.log[k];
 }
 function dueCards() {
@@ -1154,13 +1155,24 @@ function dueCards() {
     return (ca.due < cb.due ? -1 : ca.due > cb.due ? 1 : ca.box - cb.box);
   });
 }
+/* 새 단어를 '내가 등록한 것'과 '기본 단어장'으로 나눠서 낸다.
+
+   하루 한도(newPerDay)는 기본 단어장에만 건다. 내가 오늘 200개를 등록했으면
+   그 200개는 오늘 다 나온다 — 등록은 "이건 오늘 외우겠다"는 뜻이지, 기본 단어장
+   진도를 200개 늦추겠다는 뜻이 아니기 때문이다. 한 한도를 같이 쓰면 등록할수록
+   기본 진도가 멈춰서 시험 전에 한 바퀴를 못 돈다. */
+function newSplit() {
+  const L = todayLog();
+  const untouched = activeWords().filter(w => !S.cards[w.id]);
+  const mine = untouched.filter(w => w.marks.length > 0).sort((a, b) => a.idx - b.idx);
+  const remaining = Math.max(0, S.settings.newPerDay - L.new);
+  const base = untouched.filter(w => !w.marks.length).sort((a, b) => a.idx - b.idx).slice(0, remaining);
+  return { mine, base };
+}
 function newCards() {
-  const remaining = Math.max(0, S.settings.newPerDay - todayLog().new);
-  // 내가 등록한 단어를 먼저 낸다 — 책에서 방금 외운 단어가 1200개 뒤로 밀리면 안 된다
-  return activeWords()
-    .filter(w => !S.cards[w.id])
-    .sort((a, b) => (b.marks.length > 0) - (a.marks.length > 0) || a.idx - b.idx)
-    .slice(0, remaining);
+  const s = newSplit();
+  // 내가 등록한 단어를 앞에 낸다 — 책에서 방금 외운 단어가 1200개 뒤로 밀리면 안 된다
+  return s.mine.concat(s.base);
 }
 function buildQueue() {
   const due = dueCards(), fresh = newCards();
@@ -1207,7 +1219,8 @@ function grade(word, correct) {
   S.cards[word.id] = c;
 
   const L = todayLog();
-  if (wasNew) L.new++; else L.rev++;
+  // 하루 한도는 기본 단어장에만 걸리므로 내 단어는 따로 센다
+  if (wasNew) { if (word.marks && word.marks.length) L.mine++; else L.new++; } else L.rev++;
   if (correct) L.right++; else L.wrong++;
   saveState();
   return c;
@@ -1296,7 +1309,8 @@ function viewDash() {
   const L = todayLog();
   const dLeft = Math.max(0, daysBetween(dayKey(), S.settings.examDate));
   const due = dueCards().length;
-  const fresh = newCards().length;
+  const split = newSplit();
+  const fresh = split.mine.length + split.base.length;
   const q = due + fresh;
   const pctDone = st.total ? (st.learned / st.total) * 100 : 0;
   const pctLearn = st.total ? (st.learning / st.total) * 100 : 0;
@@ -1343,7 +1357,9 @@ function viewDash() {
         </div>
         <div class="qs">
           <span class="qs-n num">${fresh}</span>
-          <span class="qs-l">새 단어 (오늘 ${L.new}/${S.settings.newPerDay})</span>
+          <span class="qs-l">${split.mine.length
+            ? `새 단어 ${split.base.length} + 내 단어 ${split.mine.length}`
+            : `새 단어 (오늘 ${L.new}/${S.settings.newPerDay})`}</span>
         </div>
       </div>
       <div class="rail-wrap">
@@ -1999,7 +2015,9 @@ function viewSettings() {
       <div class="field">
         <label class="field-l" for="setNew">하루 새 단어 수</label>
         <input type="number" id="setNew" min="5" max="300" step="5" value="${S.settings.newPerDay}">
-        <span class="field-d">복습은 이 숫자와 별개로 밀린 만큼 나옵니다. 남은 ${st.untouched}개 기준 하루 ${Math.max(1, Math.ceil(st.untouched / Math.max(1, daysBetween(dayKey(), S.settings.examDate))))}개면 시험 전에 한 바퀴 돕니다.</span>
+        <span class="field-d">이 한도는 <b>기본 단어장에만</b> 걸립니다. 내가 등록한 단어는 별도로,
+          등록한 만큼 그날 다 나옵니다. 복습도 이 숫자와 별개로 밀린 만큼 나옵니다.
+          남은 ${st.untouched}개 기준 하루 ${Math.max(1, Math.ceil(st.untouched / Math.max(1, daysBetween(dayKey(), S.settings.examDate))))}개면 시험 전에 한 바퀴 돕니다.</span>
       </div>
 
       <div class="field">
@@ -2177,6 +2195,7 @@ function mergeStates(A, B) {
       rev:   Math.max(+x.rev   || 0, +y.rev   || 0),
       right: Math.max(+x.right || 0, +y.right || 0),
       wrong: Math.max(+x.wrong || 0, +y.wrong || 0),
+      mine:  Math.max(+x.mine  || 0, +y.mine  || 0),
     };
   });
 
