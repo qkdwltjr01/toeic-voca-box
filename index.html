@@ -938,14 +938,45 @@ function customCount(src) {
   return Object.values(S.custom || {}).filter(c => !src || c.src === src).length;
 }
 
+/* 뜻 입력을 줄 단위로 읽는다. 한 단어가 품사마다 다른 뜻을 갖는 경우가 흔해서
+   (address = 명사 주소 / 동사 다루다) 한 줄에 하나씩 받는다.
+
+     명) 주소
+     동사) 다루다, 연설하다
+     그냥 뜻만 써도 된다
+
+   줄 앞의 품사 표시는 선택이다. 없으면 폼의 품사 선택값을 쓴다. */
+const POS_ALIAS = {
+  "명": "명사", "동": "동사", "형": "형용사", "부": "부사", "전": "전치사",
+  "명사": "명사", "동사": "동사", "형용사": "형용사", "부사": "부사", "전치사": "전치사",
+};
+function parseMeans(text, defPos) {
+  const out = [], seen = new Set();
+  String(text || "").split(/\r?\n/).forEach(line => {
+    const s = line.trim();
+    if (!s) return;
+    const m = s.match(/^(명사|동사|형용사|부사|전치사|명|동|형|부|전)\s*[)\]\.:]\s*(.+)$/);
+    const pos = m ? POS_ALIAS[m[1]] : String(defPos || "").trim();
+    const ko = (m ? m[2] : s).trim();
+    if (!ko) return;
+    const key = pos + "|" + ko;
+    if (seen.has(key)) return;      // 같은 품사+뜻은 한 번만
+    seen.add(key);
+    out.push({ pos, ko });
+  });
+  return out;
+}
+
 /* 내 단어 저장. 이미 있는 단어면 덮어쓴다(수정과 같은 경로). */
 function saveCustom({ word, pos, ko, mn, src, ex }) {
   const id = (word || "").trim().toLowerCase();
   if (!id || !(ko || "").trim()) return null;
+  const means = parseMeans(ko, pos);
+  if (!means.length) return null;
   const source = (src || "내 단어").trim() || "내 단어";
   S.custom[id] = {
     word: word.trim(),
-    means: [{ pos: (pos || "").trim(), ko: ko.trim() }],
+    means,
     mn: (mn || "").trim(),
     ex: ex || [],
     src: source,
@@ -1919,7 +1950,11 @@ function myItem(id) {
 
 function viewAdd() {
   const c = editing ? S.custom[editing] : null;
-  const m = c && c.means[0] || {};
+  const ms = (c && c.means) || [];
+  // 여러 뜻은 "품사) 뜻" 한 줄씩으로 되돌려 보여준다
+  const meanText = ms.map(m => (m.pos ? m.pos + ") " : "") + m.ko).join("\n");
+  // 품사 선택은 뜻이 하나뿐일 때만 미리 채운다 (여러 개면 줄마다 표시가 붙는다)
+  const m = ms.length === 1 ? ms[0] : {};
   const srcVal = c ? c.src : S.settings.lastSrc;
   return `
   <div class="sheet-back" data-act="closeSheet">
@@ -1936,11 +1971,13 @@ function viewAdd() {
 
       <div class="field">
         <label class="field-l" for="adKo">뜻</label>
-        <input type="text" id="adKo" placeholder="버리다, 포기하다" value="${esc(m.ko || "")}">
+        <textarea id="adKo" rows="${Math.max(2, ms.length + 1)}" placeholder="버리다, 포기하다">${esc(meanText)}</textarea>
+        <span class="field-d">품사가 여러 개면 <b>한 줄에 하나씩</b> 적으세요. 줄 앞에 품사를 붙일 수 있습니다.
+          <br><span class="sync-code">명) 주소<br>동) 다루다, 연설하다</span></span>
       </div>
 
       <div class="field">
-        <label class="field-l" for="adPos">품사 <span style="font-weight:400;color:var(--text-3)">(선택)</span></label>
+        <label class="field-l" for="adPos">품사 <span style="font-weight:400;color:var(--text-3)">(품사 표시가 없는 줄에 적용)</span></label>
         <select id="adPos">
           ${["", "명사", "동사", "형용사", "부사", "전치사"].map(p =>
             `<option value="${p}" ${(m.pos || "") === p ? "selected" : ""}>${p || "— 없음 —"}</option>`).join("")}
