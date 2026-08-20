@@ -1981,12 +1981,8 @@ function myItem(id) {
 }
 
 function viewAdd() {
-  const c = editing ? S.custom[editing] : null;
-  const ms = (c && c.means) || [];
-  // 여러 뜻은 "품사) 뜻" 한 줄씩으로 되돌려 보여준다
   if (!addDraft) initAddDraft(editing);        // 새로고침 등으로 draft가 없으면 다시 만든다
   const rows = addDraft.means;
-  const srcVal = c ? c.src : S.settings.lastSrc;
   const POS_OPTS = ["", "명사", "동사", "형용사", "부사", "전치사"];
   return `
   <div class="sheet-back" data-act="closeSheet">
@@ -1997,7 +1993,7 @@ function viewAdd() {
       <div class="field">
         <label class="field-l" for="adWord">영단어</label>
         <input type="text" id="adWord" autocapitalize="off" autocorrect="off" spellcheck="false"
-          placeholder="abandon" value="${esc(c ? c.word : "")}" ${editing ? "disabled" : ""}>
+          placeholder="abandon" value="${esc(addDraft.word)}" ${editing ? "disabled" : ""}>
         ${editing ? `<span class="field-d">철자는 바꿀 수 없습니다. 다르면 삭제 후 새로 추가해 주세요.</span>` : ""}
       </div>
 
@@ -2018,13 +2014,13 @@ function viewAdd() {
 
       <div class="field">
         <label class="field-l" for="adMn">연상 <span style="font-weight:400;color:var(--text-3)">(경선식 암기법)</span></label>
-        <textarea id="adMn" rows="2" placeholder="어? 밴(van)에 던져 → 버리다">${esc(c ? c.mn : "")}</textarea>
+        <textarea id="adMn" rows="2" placeholder="어? 밴(van)에 던져 → 버리다">${esc(addDraft.mn)}</textarea>
         <span class="field-d">적어두면 답을 보기 전에 <b>힌트</b> 버튼으로 꺼내 볼 수 있습니다.</span>
       </div>
 
       <div class="field">
         <label class="field-l" for="adSrc">출처</label>
-        <input type="text" id="adSrc" placeholder="경선식" value="${esc(srcVal)}">
+        <input type="text" id="adSrc" placeholder="경선식" value="${esc(addDraft.src)}">
         <span class="field-d">같은 이름끼리 묶여서 설정에서 켜고 끌 수 있습니다.</span>
       </div>
 
@@ -2543,24 +2539,24 @@ app.addEventListener("click", (ev) => {
   const speakBtn = t.closest("[data-speak]");
   if (speakBtn) { ev.stopPropagation(); speak(speakBtn.dataset.speak); return; }
 
-  const item = t.closest("[data-item]");
-  if (item) { openItem = openItem === item.dataset.item ? null : item.dataset.item; render(); return; }
-
-  const modeEl = t.closest("[data-mode]");
-  if (modeEl) { S.settings.mode = modeEl.dataset.mode; saveState(); render(); return; }
-
+  /* 수정·삭제 버튼은 카드(data-item) 안에 있다. 카드 접기보다 먼저 봐야 한다. */
   const editEl = t.closest("[data-edit]");
-  if (editEl) { ev.stopPropagation(); openAddForm(editEl.dataset.edit); render(); return; }
+  if (editEl) { openAddForm(editEl.dataset.edit); render(); return; }
 
   const delEl = t.closest("[data-del]");
   if (delEl) {
-    ev.stopPropagation();
     const id = delEl.dataset.del;
     if (confirm(`"${S.custom[id].word}"을(를) 내 단어에서 지웁니다. 계속할까요?`)) {
       deleteCustom(id); openItem = null; render();
     }
     return;
   }
+
+  const item = t.closest("[data-item]");
+  if (item) { openItem = openItem === item.dataset.item ? null : item.dataset.item; render(); return; }
+
+  const modeEl = t.closest("[data-mode]");
+  if (modeEl) { S.settings.mode = modeEl.dataset.mode; saveState(); render(); return; }
 
   const srcEl = t.closest("[data-src]");
   if (srcEl) {
@@ -2623,13 +2619,13 @@ app.addEventListener("click", (ev) => {
     case "my": go("my"); break;
     case "openAdd": openAddForm(null); render(); break;
     case "meanAdd":
-      syncMeanDraft();
+      syncAddDraft();
       addDraft.means.push({ pos: "", ko: "" });
       focusMean = addDraft.means.length - 1;
       render();
       break;
     case "meanDel": {
-      syncMeanDraft();
+      syncAddDraft();
       const i = +btn.dataset.i;
       if (addDraft.means.length > 1) addDraft.means.splice(i, 1);
       render();
@@ -2688,22 +2684,33 @@ app.addEventListener("input", (ev) => {
 /* ---- 내 단어 폼 처리 ---- */
 let lastSaved = null, importMsg = "";
 
-/* 뜻 줄은 개수가 늘었다 줄었다 하므로 화면을 다시 그려도 살아남게 따로 들고 있는다.
-   나머지 칸(영단어·연상·출처)은 저장할 때 DOM에서 바로 읽는다. */
+/* 뜻 줄을 더하거나 지우면 화면을 통째로 다시 그린다. 그때 입력하던 값이 날아가지 않게
+   폼 전체(영단어·뜻·연상·출처)를 draft에 들고 있는다. */
 let addDraft = null;
 let focusMean = -1;              // 방금 추가한 줄에 커서를 놓기 위한 표시
 
 function initAddDraft(id) {
   const c = id ? S.custom[id] : null;
   const ms = (c && c.means && c.means.length) ? c.means : [{ pos: "", ko: "" }];
-  addDraft = { means: ms.map(m => ({ pos: m.pos || "", ko: m.ko || "" })) };
+  addDraft = {
+    word: c ? c.word : "",
+    mn: (c && c.mn) || "",
+    src: c ? c.src : S.settings.lastSrc,
+    means: ms.map(m => ({ pos: m.pos || "", ko: m.ko || "" })),
+  };
   focusMean = -1;
 }
 function openAddForm(id) { editing = id || null; initAddDraft(editing); sheet = "add"; }
 
-/* 화면에 있는 값을 draft에 다시 담는다. 줄을 더하거나 지우기 직전에 부른다. */
-function syncMeanDraft() {
+/* 화면에 있는 값을 draft에 다시 담는다. 다시 그리기 직전과 저장 직전에 부른다. */
+function syncAddDraft() {
   if (!addDraft) return;
+  const w = document.getElementById("adWord");
+  const mn = document.getElementById("adMn");
+  const src = document.getElementById("adSrc");
+  if (w && !w.disabled) addDraft.word = w.value;
+  if (mn) addDraft.mn = mn.value;
+  if (src) addDraft.src = src.value;
   addDraft.means.forEach((m, i) => {
     const ko = document.getElementById("adKo" + i);
     const pos = document.getElementById("adPos" + i);
@@ -2715,9 +2722,9 @@ const val = id => { const e = document.getElementById(id); return e ? String(e.v
 const WORD_RE = /^[A-Za-z][A-Za-z '\-]*$/;
 
 function doSaveAdd(more) {
-  syncMeanDraft();
-  const word = editing ? S.custom[editing].word : val("adWord");
-  const mn = val("adMn"), src = val("adSrc");
+  syncAddDraft();
+  const word = editing ? S.custom[editing].word : addDraft.word;
+  const mn = addDraft.mn, src = addDraft.src;
   const box = document.getElementById("adMsg");
   const warn = m => { if (box) box.innerHTML = `<div class="warn">${m}</div>`; };
 
